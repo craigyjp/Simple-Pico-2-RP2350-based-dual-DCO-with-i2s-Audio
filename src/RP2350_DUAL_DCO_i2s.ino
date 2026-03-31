@@ -9,7 +9,7 @@
  *   I2S LRCK  -> GPIO10 (PCM5101A LRCK)
  *   I2S DATA  -> GPIO11 (PCM5101A DIN)
  *   DCO1 -> Left channel, DCO2 -> Right channel
- *   GATE OUT   -> GPIO5  (3.3V high = note active)
+ *   GATE OUT   -> GPIO5  (3.3V high = note active, direct connection)
  *   FM IN      -> GPIO26 (ADC0, bias to 1.65V)
  *   PWM IN     -> GPIO27 (ADC1, bias to 1.65V)
  *   X-MOD IN   -> GPIO28 (ADC2, feed DCO2 output via 10k resistor)
@@ -38,8 +38,8 @@
 #define ADC_FM_PIN      26
 #define ADC_PWM_PIN     27
 #define ADC_XMOD_PIN    28      /* GPIO28 ADC2 - X-MOD input (DCO2->DCO1) */
-#define VELOCITY_PWM_PIN 3      /* GPIO3 - velocity CV output, RC filter: 1k + 10nF */
-#define KEYTRACK_PWM_PIN 6      /* GPIO6 - keytrack CV output, RC filter: 1k + 10nF */
+#define VELOCITY_PWM_PIN 3      /* GPIO3 - velocity CV output, RC filter: 100k + 22nF + MCP6004 buffer (5V rail-to-rail) */
+#define KEYTRACK_PWM_PIN 6      /* GPIO6 - keytrack CV output, RC filter: 100k + 22nF + MCP6004 buffer (5V rail-to-rail) */
 #define AFTERTOUCH_PWM_PIN 7    /* GPIO7 - aftertouch CV output, RC filter: 1k + 10nF */
 
 /* --------------------------------------------------------
@@ -64,7 +64,7 @@
 #define CC_DCO1_PWM_DEPTH   20  /* DCO1 mod wheel PWM depth            */
 #define CC_DCO1_SAW_LEVEL   21  /* saw level in mix                    */
 #define CC_DCO1_PULSE_LEVEL 22  /* DCO1 pulse level in mix             */
-#define CC_DCO1_SUB_LEVEL   23  /* DCO1 sub level                      */
+#define CC_DCO1_TRI_LEVEL   23  /* DCO1 triangle level                 */
 
 /* --- Pitch --- */
 #define CC_PITCHBEND_RANGE  24  /* pitchbend range 1-12 semitones      */
@@ -267,7 +267,7 @@ void myControlChange(byte channel, byte cc, byte value)
             case CC_DCO1_PWM_DEPTH:  DCO_SetPWMDepth(value);        break;
             case CC_DCO1_SAW_LEVEL:       DCO_SetSawLevel(value);        break;
             case CC_DCO1_PULSE_LEVEL:     DCO_SetPulseLevel(value);      break;
-            case CC_DCO1_SUB_LEVEL:       DCO_SetSubLevel(value);        break;
+            case CC_DCO1_TRI_LEVEL:       DCO_SetSubLevel(value);        break;
             case CC_PITCHBEND_RANGE: DCO_SetPitchBendRange(value);  break;
             case CC_ADC_FM_DEPTH:    DCO_SetFMDepth(value);         break;
             case CC_XMOD_DEPTH:      DCO_SetXModDepth(value);       break;

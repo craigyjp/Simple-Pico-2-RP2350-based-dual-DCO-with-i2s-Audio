@@ -72,25 +72,35 @@ typedef struct
 static SawVoice sawVoices[DCO_MAX_SAW_VOICES];
 static int      sawCount    = 1;
 static float    sawDetune   = 0.0f;     /* cents */
+/* Level smoothing - target values set by CC, current values slew toward target
+ * eliminates zipper noise on level control changes */
+#define LEVEL_SMOOTH    0.3f     /* ~3 buffer slew ~16ms, enough to kill zipper noise */
+
 static float    sawLevel    = 1.0f;
+static float    sawLevelTarget = 1.0f;
 
 /* --- Pulse / PWM --- */
 static float    pulsePhase      = 0.0f;
 static float    pulsePhaseInc   = 0.0f;
 static float    pulseWidth      = 0.5f;
+static float    pulseWidthTarget = 0.5f;
 static float    pwmDepth        = 0.0f;
 static float    pulseLevel      = 0.0f;
+static float    pulseLevelTarget = 0.0f;
 
 /* --- Sub oscillator --- */
 static float    subPhase        = 0.0f;
 static float    subPhaseInc     = 0.0f;
 static float    subLevel        = 0.0f;
+static float    subLevelTarget   = 0.0f;
 
 /* --- DCO2 Pulse / PWM --- */
 static float    dco2PulsePhase  = 0.0f;
 static float    dco2PulseInc    = 0.0f;
 static float    dco2PulseWidth  = 0.5f;
+static float    dco2PulseWidthTarget = 0.5f;
 static float    dco2PulseLevel  = 0.0f;
+static float    dco2PulseLevelTarget = 0.0f;
 static float    dco2PWMDepth    = 0.0f;   /* mod wheel PWM depth */
 static float    dco2ADCPWMDepth = 0.0f;   /* ADC PWM depth */
 
@@ -98,11 +108,13 @@ static float    dco2ADCPWMDepth = 0.0f;   /* ADC PWM depth */
 static float    dco2SubPhase    = 0.0f;
 static float    dco2SubInc      = 0.0f;
 static float    dco2SubLevel    = 0.0f;
+static float    dco2SubLevelTarget   = 0.0f;
 
 /* --- DCO2 Sawtooth --- */
 static float    dco2SawPhase    = 0.0f;
 static float    dco2SawInc      = 0.0f;
 static float    dco2SawLevel    = 0.0f;
+static float    dco2SawLevelTarget   = 0.0f;
 
 /* --- DCO2 Pitch offset --- */
 static float    dco2Detune      = 0.0f;   /* cents, -100 to +100 */
@@ -262,7 +274,7 @@ static void recalcPhaseIncs(void)
     float freq = currentFreq * bendRatio;
 
     pulsePhaseInc = freq / sampleRate;
-    subPhaseInc   = (freq * 0.5f) / sampleRate;
+    subPhaseInc   = freq / sampleRate;
 
     /* dco2SweepRatio is applied per-sample in DCO2_Process
      * so recalcPhaseIncs only uses the static pitch offset */
@@ -304,29 +316,37 @@ void DCO_Init(float sample_rate)
     sawCount  = 1;
     sawDetune = 0.0f;
     sawLevel  = 0.8f;
+    sawLevelTarget = 0.8f;
 
     pulsePhase    = 0.0f;
     pulsePhaseInc = 0.0f;
     pulseWidth    = 0.5f;
+    pulseWidthTarget = 0.5f;
     pwmDepth      = 0.0f;
     pulseLevel    = 0.0f;
+    pulseLevelTarget = 0.0f;
 
     subPhase    = 0.0f;
     subPhaseInc = 0.0f;
     subLevel    = 0.0f;
+    subLevelTarget   = 0.0f;
 
     dco2PulsePhase  = 0.0f;
     dco2PulseInc    = 0.0f;
     dco2PulseWidth  = 0.5f;
+    dco2PulseWidthTarget = 0.5f;
     dco2PulseLevel  = 0.0f;
+    dco2PulseLevelTarget = 0.0f;
     dco2PWMDepth    = 0.0f;
     dco2ADCPWMDepth = 0.0f;
     dco2SubPhase   = 0.0f;
     dco2SubInc     = 0.0f;
     dco2SubLevel   = 0.0f;
+    dco2SubLevelTarget   = 0.0f;
     dco2SawPhase   = 0.0f;
     dco2SawInc     = 0.0f;
     dco2SawLevel   = 0.0f;
+    dco2SawLevelTarget   = 0.0f;
     dco2Detune     = 0.0f;
     dco2Interval   = 0;
     dco2PitchRatio = 1.0f;
@@ -403,14 +423,7 @@ void DCO_NoteOn(uint8_t note, uint8_t vel)
     else if (currentFreq < 1.0f)
         currentFreq = targetFreq;   /* snap on first note */
 
-    for (int i = 0; i < DCO_MAX_SAW_VOICES; i++)
-        sawVoices[i].phase = (float)i / (float)DCO_MAX_SAW_VOICES;
-
-    pulsePhase     = 0.0f;
-    subPhase       = 0.0f;
-    dco2PulsePhase = 0.0f;
-    dco2SubPhase   = 0.0f;
-    dco2SawPhase   = 0.0f;
+    /* oscillators run freely - no phase reset on NoteOn */
 
     recalcPhaseIncs();
 
@@ -487,7 +500,7 @@ void DCO_SetSawDetune(uint8_t value)
 
 void DCO_SetSawLevel(uint8_t value)
 {
-    sawLevel = (float)value / 127.0f;
+    sawLevelTarget = (float)value / 127.0f;
 }
 
 /* --------------------------------------------------------
@@ -495,7 +508,7 @@ void DCO_SetSawLevel(uint8_t value)
  * -------------------------------------------------------- */
 void DCO_SetPulseWidth(uint8_t value)
 {
-    pulseWidth = 0.01f + (float)value / 127.0f * 0.98f;
+    pulseWidthTarget = 0.01f + (float)value / 127.0f * 0.98f;
 }
 
 void DCO_SetPWMDepth(uint8_t value)
@@ -505,7 +518,7 @@ void DCO_SetPWMDepth(uint8_t value)
 
 void DCO_SetPulseLevel(uint8_t value)
 {
-    pulseLevel = (float)value / 127.0f;
+    pulseLevelTarget = (float)value / 127.0f;
 }
 
 /* --------------------------------------------------------
@@ -513,7 +526,7 @@ void DCO_SetPulseLevel(uint8_t value)
  * -------------------------------------------------------- */
 void DCO_SetSubLevel(uint8_t value)
 {
-    subLevel = (float)value / 127.0f;
+    subLevelTarget = (float)value / 127.0f;
 }
 
 /* --------------------------------------------------------
@@ -851,22 +864,22 @@ void DCO_SetEnvDCO2PWMDepth(uint8_t value)
  * -------------------------------------------------------- */
 void DCO2_SetSawLevel(uint8_t value)
 {
-    dco2SawLevel = (float)value / 127.0f;
+    dco2SawLevelTarget = (float)value / 127.0f;
 }
 
 void DCO2_SetPulseWidth(uint8_t value)
 {
-    dco2PulseWidth = 0.01f + (float)value / 127.0f * 0.98f;
+    dco2PulseWidthTarget = 0.01f + (float)value / 127.0f * 0.98f;
 }
 
 void DCO2_SetPulseLevel(uint8_t value)
 {
-    dco2PulseLevel = (float)value / 127.0f;
+    dco2PulseLevelTarget = (float)value / 127.0f;
 }
 
 void DCO2_SetSubLevel(uint8_t value)
 {
-    dco2SubLevel = (float)value / 127.0f;
+    dco2SubLevelTarget = (float)value / 127.0f;
 }
 
 void DCO2_SetPWMDepth(uint8_t value)
@@ -1009,11 +1022,11 @@ void DCO_Process(float *output, int len)
             }
         }
 
-        /* --- Sub oscillator --- */
+        /* --- Triangle oscillator --- */
         if (subLevel > 0.0f)
         {
             float dt = subPhaseInc * fmRatio;
-            float v  = (subPhase < 0.5f) ? 1.0f : -1.0f;
+            float v  = (subPhase < 0.5f) ? (4.0f * subPhase - 1.0f) : (3.0f - 4.0f * subPhase);
             sample += v * subLevel;
 
             subPhase += dt;
@@ -1236,6 +1249,16 @@ void DCO_ProcessBoth(float *out1, float *out2, int len)
     if (pwmMod2 >  1.0f) pwmMod2 =  1.0f;
     if (pwmMod2 < -1.0f) pwmMod2 = -1.0f;
 
+    /* --- Slew level and pulse width controls toward targets (once per buffer) --- */
+    sawLevel      += (sawLevelTarget      - sawLevel)      * LEVEL_SMOOTH;
+    pulseLevel    += (pulseLevelTarget    - pulseLevel)    * LEVEL_SMOOTH;
+    subLevel      += (subLevelTarget      - subLevel)      * LEVEL_SMOOTH;
+    dco2PulseLevel+= (dco2PulseLevelTarget- dco2PulseLevel)* LEVEL_SMOOTH;
+    dco2SubLevel  += (dco2SubLevelTarget  - dco2SubLevel)  * LEVEL_SMOOTH;
+    dco2SawLevel  += (dco2SawLevelTarget  - dco2SawLevel)  * LEVEL_SMOOTH;
+    pulseWidth    += (pulseWidthTarget    - pulseWidth)    * LEVEL_SMOOTH;
+    dco2PulseWidth+= (dco2PulseWidthTarget- dco2PulseWidth)* LEVEL_SMOOTH;
+
     for (int n = 0; n < len; n++)
     {
         /* --- Envelope tick (per sample) --- */
@@ -1293,10 +1316,11 @@ void DCO_ProcessBoth(float *out1, float *out2, int len)
         }
 
         /* --- DCO1 Sub --- */
+        /* --- Triangle oscillator --- */
         if (subLevel > 0.0f)
         {
             float dt = subPhaseInc * dco1FMRatio;
-            float v  = (subPhase < 0.5f) ? 1.0f : -1.0f;
+            float v  = (subPhase < 0.5f) ? (4.0f * subPhase - 1.0f) : (3.0f - 4.0f * subPhase);
             sample1 += v * subLevel;
             subPhase += dt;
             if (subPhase >= 1.0f) subPhase -= 1.0f;
