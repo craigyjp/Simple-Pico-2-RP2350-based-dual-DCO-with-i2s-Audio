@@ -2,7 +2,7 @@
 
 I wanted to build a polysynth oscillator core with the least amount of parts and make it stable, so here is an RP2350 based dual DCO.
 
-It can create 5 waveforms, SAW1 and super SAW1 upto 5 oscillators deep, PW1, SUB1, SAW2, PW2 and SUB2. 
+It can create 5 waveforms, SAW1 and super SAW1 upto 5 oscillators deep, PW1, TRIANGLE, SAW2, PW2 and SUB2. 
 
 The second DCO has detune and interval settings. 
 
@@ -47,7 +47,7 @@ I might build an 8 or 16 voice poly with it.
 * CC_DCO1_PWM_DEPTH   20  /* DCO1 mod wheel PWM depth            */
 * CC_DCO1_SAW_LEVEL   21  /* saw level in mix                    */
 * CC_DCO1_PULSE_LEVEL 22  /* DCO1 pulse level in mix             */
-* CC_DCO1_SUB_LEVEL   23  /* DCO1 sub level                      */
+* CC_DCO1_TRI_LEVEL   23  /* DCO1 sub level                      */
 
 # LFO1
 
