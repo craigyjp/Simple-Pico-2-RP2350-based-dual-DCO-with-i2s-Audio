@@ -9,7 +9,7 @@
  *   I2S LRCK  -> GPIO10 (PCM5101A LRCK)
  *   I2S DATA  -> GPIO11 (PCM5101A DIN)
  *   DCO1 -> Left channel, DCO2 -> Right channel
- *   GATE OUT   -> GPIO3  (3.3V high = note active)
+ *   GATE OUT   -> GPIO5  (3.3V high = note active)
  *   FM IN      -> GPIO26 (ADC0, bias to 1.65V)
  *   PWM IN     -> GPIO27 (ADC1, bias to 1.65V)
  *   X-MOD IN   -> GPIO28 (ADC2, feed DCO2 output via 10k resistor)
@@ -34,11 +34,11 @@
 #define I2S_BCLK_PIN    9
 #define I2S_LRCK_PIN    10
 #define I2S_DATA_PIN    11
-#define GATE_PIN        3
+#define GATE_PIN        5
 #define ADC_FM_PIN      26
 #define ADC_PWM_PIN     27
 #define ADC_XMOD_PIN    28      /* GPIO28 ADC2 - X-MOD input (DCO2->DCO1) */
-#define VELOCITY_PWM_PIN 5      /* GPIO5 - velocity CV output, RC filter: 1k + 10nF */
+#define VELOCITY_PWM_PIN 3      /* GPIO3 - velocity CV output, RC filter: 1k + 10nF */
 #define KEYTRACK_PWM_PIN 6      /* GPIO6 - keytrack CV output, RC filter: 1k + 10nF */
 #define AFTERTOUCH_PWM_PIN 7    /* GPIO7 - aftertouch CV output, RC filter: 1k + 10nF */
 
@@ -73,6 +73,10 @@
 #define CC_LFO1_RATE        25  /* LFO1 rate 0.1-20Hz                  */
 #define CC_LFO1_WAVEFORM    26  /* LFO1 waveform tri/sq/saw            */
 #define CC_LFO1_FM_DEPTH    27  /* LFO1 -> FM depth                    */
+#define CC_LFO1_DELAY_TIME  55  /* LFO1 delay time before onset        */
+#define CC_LFO1_DELAY_RAMP  56  /* LFO1 ramp up time after delay       */
+#define CC_LFO1_RETRIG      57  /* >= 64 retrigger on, < 64 legato     */
+#define CC_NOTES_HELD       58  /* >= 64 notes held, < 64 all released */
 #define CC_AT_FM_DEPTH      28  /* aftertouch -> vibrato depth         */
 #define CC_MW_FM_DEPTH      29  /* mod wheel -> FM depth               */
 #define CC_ADC_FM_DEPTH     30  /* ADC FM input depth                  */
@@ -104,6 +108,7 @@
 #define CC_ENV_SUSTAIN      47  /* sustain level                       */
 #define CC_ENV_RELEASE      48  /* release 0=slow 127=fast             */
 #define CC_ENV_DEPTH        49  /* envelope -> DCO2 pitch depth        */
+#define CC_KEYTRACK_DEPTH   54  /* keytrack CV output scaling          */
 #define CC_ENV_DCO1_PWM     50  /* envelope -> DCO1 PWM depth          */
 #define CC_ENV_DCO2_PWM     51  /* envelope -> DCO2 PWM depth          */
 
@@ -149,6 +154,7 @@ static void VelocityPWM_Set(uint8_t velocity)
  * -------------------------------------------------------- */
 static uint8_t  keytrackSlice = 0;
 static uint8_t  keytrackChan  = 0;
+static float    keytrackDepth = 1.0f;  /* 0.0-1.0, scales keytrack CV output */
 
 static void KeytrackPWM_Init(uint8_t pin)
 {
@@ -168,7 +174,7 @@ static void KeytrackPWM_Set(uint8_t note)
 {
     /* 0.25V per octave = 0.25V / 12 semitones = 0.020833V per semitone
      * PWM level = note * (0.020833 / 3.3) * 255 = note * 1.6083 */
-    uint16_t level = (uint16_t)((float)note * 1.6083f);
+    uint16_t level = (uint16_t)((float)note * 1.6083f * keytrackDepth);
     if (level > 255) level = 255;
     pwm_set_chan_level(keytrackSlice, keytrackChan, level);
 }
@@ -265,9 +271,14 @@ void myControlChange(byte channel, byte cc, byte value)
             case CC_PITCHBEND_RANGE: DCO_SetPitchBendRange(value);  break;
             case CC_ADC_FM_DEPTH:    DCO_SetFMDepth(value);         break;
             case CC_XMOD_DEPTH:      DCO_SetXModDepth(value);       break;
+            case CC_KEYTRACK_DEPTH:  keytrackDepth = (float)value / 127.0f; break;
             case CC_LFO1_RATE:        DCO_SetLFORate(value);         break;
             case CC_LFO1_WAVEFORM:    DCO_SetLFOWaveform(value);     break;
             case CC_LFO1_FM_DEPTH:    DCO_SetLFOFMDepth(value);      break;
+            case CC_LFO1_DELAY_TIME:  DCO_SetLFO1DelayTime(value);   break;
+            case CC_LFO1_DELAY_RAMP:  DCO_SetLFO1DelayRamp(value);   break;
+            case CC_LFO1_RETRIG:      DCO_SetLFO1DelayRetrig(value); break;
+            case CC_NOTES_HELD:       DCO_SetNotesHeld(value);       break;
             case CC_LFO2_RATE:       DCO_SetLFO2Rate(value);        break;
             case CC_LFO2_WAVEFORM:   DCO_SetLFO2Waveform(value);    break;
             case CC_DCO1_LFO2_PWM:   DCO_SetLFO2PWMDepth(value);    break;
@@ -379,6 +390,7 @@ void setup()
     DCO_SetFMDepth(0);
     DCO_SetADCPWMDepth(0);      /* CC_DCO1_ADC_PWM */
     DCO_SetXModDepth(0);        /* X-MOD off until enabled */
+    keytrackDepth = 1.0f;       /* full keytrack by default */
 
     /* calibrate X-MOD zero point from actual DC bias voltage
      * take 256 readings with small delays for ADC to settle */
@@ -389,7 +401,9 @@ void setup()
     DCO_SetLFORate(20);
     DCO_SetLFOWaveform(127);    /* sawtooth */
     DCO_SetLFOFMDepth(0);
-    DCO_SetLFOPWMDepth(0);
+    DCO_SetLFO1DelayTime(0);    /* no delay by default */
+    DCO_SetLFO1DelayRamp(0);    /* instant onset by default */
+    DCO_SetLFO1DelayRetrig(127); /* retrigger on by default */
     DCO_SetLFO2Rate(20);
     DCO_SetLFO2Waveform(0);     /* triangle */
     DCO_SetLFO2PWMDepth(0);

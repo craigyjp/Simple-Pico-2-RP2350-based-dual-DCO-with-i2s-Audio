@@ -100,6 +100,10 @@ void DCO_CalibrateXMod(uint16_t raw);       /* call at startup to set zero point
 void DCO_SetLFORate(uint8_t value);         /* 0-127 -> 0.1Hz-20Hz exponential */
 void DCO_SetLFOWaveform(uint8_t value);     /* 0-42=triangle 43-84=square 85-127=sawtooth */
 void DCO_SetLFOFMDepth(uint8_t value);      /* 0-127, LFO1 -> FM pitch depth */
+void DCO_SetLFO1DelayTime(uint8_t value);   /* 0-127, delay before LFO1 starts, 0=no delay */
+void DCO_SetLFO1DelayRamp(uint8_t value);   /* 0-127, ramp up time after delay, 0=instant */
+void DCO_SetLFO1DelayRetrig(uint8_t value);  /* >= 64 = retrigger on, < 64 = legato */
+void DCO_SetNotesHeld(uint8_t value);       /* >= 64 = notes held, < 64 = all released (resets LFO delay) */
 void DCO_SetLFOPWMDepth(uint8_t value);     /* 0-127, kept for compatibility */
 
 /* --------------------------------------------------------

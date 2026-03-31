@@ -29,7 +29,7 @@
 #define LFO_RATE_MAX    20.0f   /* Hz */
 
 /* FM pitch modulation range at full depth - semitones */
-#define FM_SEMITONE_RANGE   12.0f
+#define FM_SEMITONE_RANGE   6.0f
 
 /* --------------------------------------------------------
  * PolyBLEP helper
@@ -167,6 +167,15 @@ static uint8_t  lfoWaveform     = LFO_TRIANGLE;
 static float    lfoFMDepth      = 0.0f;     /* 0.0 - 1.0 */
 static float    lfoPWMDepth     = 0.0f;     /* 0.0 - 1.0 */
 static float    lfoOutput       = 0.0f;     /* current LFO value -1.0 to +1.0 */
+
+/* --- LFO1 delay / attack --- */
+typedef enum { LFO_DELAY_IDLE, LFO_DELAY_WAITING, LFO_DELAY_RAMPING, LFO_DELAY_FULL } LFODelayState;
+static LFODelayState lfoDelayState  = LFO_DELAY_IDLE;
+static float    lfoDelayTime    = 0.0f;   /* samples until ramp starts */
+static float    lfoDelayRamp    = 0.0f;   /* samples to ramp from 0 to full */
+static float    lfoDelayCounter = 0.0f;   /* current counter */
+static float    lfoDelayScale   = 1.0f;   /* 0.0-1.0 current depth scale */
+static bool     lfoDelayRetrig  = true;    /* true=restart delay on each note, false=legato */
 
 /* --- LFO2 (dedicated to PWM) --- */
 static float    lfo2Phase       = 0.0f;
@@ -366,6 +375,12 @@ void DCO_Init(float sample_rate)
 
     lfo2Phase        = 0.25f;  /* triangle at 0.25 = 0 output */
     lfo2PhaseInc     = LFO_RATE_MIN / sample_rate;
+
+    lfoDelayState   = LFO_DELAY_IDLE;
+    lfoDelayTime    = 0.0f;
+    lfoDelayRamp    = 0.0f;
+    lfoDelayCounter = 0.0f;
+    lfoDelayScale   = 1.0f;
     lfo2Waveform     = LFO_TRIANGLE;
     lfo2PWMDepth     = 0.0f;
     lfo2DCO2PWMDepth = 0.0f;
@@ -398,6 +413,29 @@ void DCO_NoteOn(uint8_t note, uint8_t vel)
     dco2SawPhase   = 0.0f;
 
     recalcPhaseIncs();
+
+    /* restart LFO1 delay on note on if retrigger enabled
+     * if retrigger off, only resets when CC_NOTES_HELD goes to 0 */
+    if (lfoDelayRetrig || lfoDelayState == LFO_DELAY_IDLE)
+    {
+        if (lfoDelayTime > 0.0f)
+        {
+            lfoDelayState   = LFO_DELAY_WAITING;
+            lfoDelayCounter = lfoDelayTime;
+            lfoDelayScale   = 0.0f;
+        }
+        else if (lfoDelayRamp > 0.0f)
+        {
+            lfoDelayState   = LFO_DELAY_RAMPING;
+            lfoDelayCounter = lfoDelayRamp;
+            lfoDelayScale   = 0.0f;
+        }
+        else
+        {
+            lfoDelayState   = LFO_DELAY_FULL;
+            lfoDelayScale   = 1.0f;
+        }
+    }
 }
 
 void DCO_NoteOff(uint8_t note)
@@ -625,6 +663,53 @@ void DCO_SetLFO2PWMDepth(uint8_t value)
 void DCO_SetLFO2DCO2PWMDepth(uint8_t value)
 {
     lfo2DCO2PWMDepth = (float)value / 127.0f;
+}
+
+/* --------------------------------------------------------
+ * LFO1 delay parameters
+ * -------------------------------------------------------- */
+void DCO_SetLFO1DelayTime(uint8_t value)
+{
+    /* 0 = no delay, 127 = ~5 seconds
+     * exponential mapping for fine control at short times */
+    if (value == 0)
+    {
+        lfoDelayTime  = 0.0f;
+        lfoDelayScale = 1.0f;
+        lfoDelayState = LFO_DELAY_FULL;
+        return;
+    }
+    float t        = (float)value / 127.0f;
+    lfoDelayTime   = 0.1f * powf(50.0f, t) * DCO_SAMPLE_RATE;  /* 0.1s to 5s */
+}
+
+void DCO_SetLFO1DelayRetrig(uint8_t value)
+{
+    /* >= 64 = retrigger on (delay restarts on each note)
+     *  < 64 = retrigger off (delay only resets when all notes released) */
+    lfoDelayRetrig = (value >= 64);
+}
+
+void DCO_SetNotesHeld(uint8_t value)
+{
+    /* Called by Teensy assigner via CC:
+     * value >= 64 = at least one note held globally
+     * value  < 64 = all notes released
+     * When all notes released, reset LFO delay so next note retriggers */
+    if (value < 64)
+        lfoDelayState = LFO_DELAY_IDLE;
+}
+
+void DCO_SetLFO1DelayRamp(uint8_t value)
+{
+    /* 0 = instant ramp, 127 = ~3 seconds */
+    if (value == 0)
+    {
+        lfoDelayRamp = 0.0f;
+        return;
+    }
+    float t      = (float)value / 127.0f;
+    lfoDelayRamp = 0.05f * powf(60.0f, t) * DCO_SAMPLE_RATE;  /* 0.05s to 3s */
 }
 
 /* --------------------------------------------------------
@@ -1054,6 +1139,48 @@ void DCO_ProcessBoth(float *out1, float *out2, int len)
         recalcPhaseIncs();
     }
 
+    /* advance LFO1 delay state once per buffer */
+    switch (lfoDelayState)
+    {
+        case LFO_DELAY_WAITING:
+            lfoDelayCounter -= (float)len;
+            if (lfoDelayCounter <= 0.0f)
+            {
+                if (lfoDelayRamp > 0.0f)
+                {
+                    lfoDelayState   = LFO_DELAY_RAMPING;
+                    lfoDelayCounter = lfoDelayRamp;
+                    lfoDelayScale   = 0.0f;
+                }
+                else
+                {
+                    lfoDelayState = LFO_DELAY_FULL;
+                    lfoDelayScale = 1.0f;
+                }
+            }
+            break;
+
+        case LFO_DELAY_RAMPING:
+            lfoDelayCounter -= (float)len;
+            lfoDelayScale    = 1.0f - (lfoDelayCounter / lfoDelayRamp);
+            if (lfoDelayScale > 1.0f) lfoDelayScale = 1.0f;
+            if (lfoDelayCounter <= 0.0f)
+            {
+                lfoDelayState = LFO_DELAY_FULL;
+                lfoDelayScale = 1.0f;
+            }
+            break;
+
+        case LFO_DELAY_FULL:
+            lfoDelayScale = 1.0f;
+            break;
+
+        case LFO_DELAY_IDLE:
+        default:
+            lfoDelayScale = 1.0f;
+            break;
+    }
+
     /* advance envelope one step to get current value for buffer calculations */
     envTick();
 
@@ -1066,8 +1193,8 @@ void DCO_ProcessBoth(float *out1, float *out2, int len)
     while (lfo2Phase >= 1.0f) lfo2Phase -= 1.0f;
     lfo2Output = lfo2Tick();
 
-    /* LFO1 -> FM only */
-    float effectiveLFOFMDepth = lfoFMDepth + (aftertouch * atFMDepth);
+    /* LFO1 -> FM only, scaled by delay envelope */
+    float effectiveLFOFMDepth = (lfoFMDepth + (aftertouch * atFMDepth)) * lfoDelayScale;
     if (effectiveLFOFMDepth > 1.0f) effectiveLFOFMDepth = 1.0f;
 
     float fmMod = (lfoOutput * effectiveLFOFMDepth)
