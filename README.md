@@ -58,6 +58,10 @@ I might build an 8 or 16 voice poly with it.
 * CC_MW_FM_DEPTH      29  /* mod wheel -> FM depth               */
 * CC_ADC_FM_DEPTH     30  /* ADC FM input depth                  */
 * CC_XMOD_DEPTH       53  /* X-MOD depth DCO2->DCO1 freq         */
+* CC_LFO1_DELAY_TIME  55  /* LFO1 delay time before onset        */
+* CC_LFO1_DELAY_RAMP  56  /* LFO1 ramp up time after delay       */
+* CC_LFO1_RETRIG      57  /* >= 64 retrigger on, < 64 legato     */
+* CC_NOTES_HELD       58  /* >= 64 notes held, < 64 all released */
 
 # LFO2
 
@@ -88,3 +92,4 @@ I might build an 8 or 16 voice poly with it.
 * CC_ENV_DEPTH        49  /* envelope -> DCO2 pitch depth        */
 * CC_ENV_DCO1_PWM     50  /* envelope -> DCO1 PWM depth          */
 * CC_ENV_DCO2_PWM     51  /* envelope -> DCO2 PWM depth          */
+* CC_KEYTRACK_DEPTH   54  /* keytrack CV output scaling          */
