@@ -74,7 +74,7 @@ static int      sawCount    = 1;
 static float    sawDetune   = 0.0f;     /* cents */
 /* Level smoothing - target values set by CC, current values slew toward target
  * eliminates zipper noise on level control changes */
-#define LEVEL_SMOOTH    0.3f     /* ~3 buffer slew ~16ms, enough to kill zipper noise */
+#define LEVEL_SMOOTH    0.2f     /* ~3 buffer slew ~16ms, enough to kill zipper noise */
 
 static float    sawLevel    = 1.0f;
 static float    sawLevelTarget = 1.0f;
@@ -141,6 +141,10 @@ static float    envSweepDepth  = 0.0f;   /* 0.0 - 1.0, scales DCO2 pitch range *
 static float    dco2SweepRatio = 1.0f;   /* pitch ratio from envelope */
 static float    envDCO1PWMDepth= 0.0f;   /* 0.0 - 1.0, envelope -> DCO1 PWM */
 static float    envDCO2PWMDepth= 0.0f;   /* 0.0 - 1.0, envelope -> DCO2 PWM */
+
+/* --- Octave --- */
+static float    dco1OctaveRatio = 1.0f;   /* 0.5=16', 1.0=8', 2.0=4', 4.0=2' */
+static float    dco2OctaveRatio = 1.0f;
 
 /* --- Pitch --- */
 static float    sampleRate      = 48000.0f;
@@ -271,14 +275,15 @@ static void recalcDCO2PitchRatio(void)
  * -------------------------------------------------------- */
 static void recalcPhaseIncs(void)
 {
-    float freq = currentFreq * bendRatio;
+    float freq  = currentFreq * bendRatio * dco1OctaveRatio;
+    float freq2b = currentFreq * bendRatio * dco2OctaveRatio;
 
     pulsePhaseInc = freq / sampleRate;
     subPhaseInc   = freq / sampleRate;
 
     /* dco2SweepRatio is applied per-sample in DCO2_Process
      * so recalcPhaseIncs only uses the static pitch offset */
-    float freq2      = freq * dco2PitchRatio;
+    float freq2      = freq2b * dco2PitchRatio;
     dco2PulseInc     = freq2 / sampleRate;
     dco2SubInc       = (freq2 * 0.5f) / sampleRate;
     dco2SawInc       = freq2 / sampleRate;
@@ -365,6 +370,8 @@ void DCO_Init(float sample_rate)
     envDCO1PWMDepth = 0.0f;
     envDCO2PWMDepth = 0.0f;
 
+    dco1OctaveRatio = 1.0f;
+    dco2OctaveRatio = 1.0f;
     baseFreq     = 0.0f;
     currentFreq  = 0.0f;
     targetFreq   = 0.0f;
@@ -723,6 +730,30 @@ void DCO_SetLFO1DelayRamp(uint8_t value)
     }
     float t      = (float)value / 127.0f;
     lfoDelayRamp = 0.05f * powf(60.0f, t) * DCO_SAMPLE_RATE;  /* 0.05s to 3s */
+}
+
+/* --------------------------------------------------------
+ * Octave switching
+ * -------------------------------------------------------- */
+static float ccToOctaveRatio(uint8_t value)
+{
+    /* 0-31=16' (0.5x), 32-63=8' (1.0x), 64-95=4' (2.0x), 96-127=2' (4.0x) */
+    if      (value < 32)  return 0.5f;
+    else if (value < 64)  return 1.0f;
+    else if (value < 96)  return 2.0f;
+    else                  return 4.0f;
+}
+
+void DCO_SetOctave(uint8_t value)
+{
+    dco1OctaveRatio = ccToOctaveRatio(value);
+    recalcPhaseIncs();
+}
+
+void DCO2_SetOctave(uint8_t value)
+{
+    dco2OctaveRatio = ccToOctaveRatio(value);
+    recalcPhaseIncs();
 }
 
 /* --------------------------------------------------------

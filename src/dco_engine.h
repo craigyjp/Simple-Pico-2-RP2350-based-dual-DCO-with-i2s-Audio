@@ -45,6 +45,8 @@ void DCO_SetPitchBendRange(uint8_t semitones);
 /* --------------------------------------------------------
  * Portamento
  * -------------------------------------------------------- */
+void DCO_SetOctave(uint8_t value);         /* 0-31=16' 32-63=8' 64-95=4' 96-127=2' */
+void DCO2_SetOctave(uint8_t value);        /* 0-31=16' 32-63=8' 64-95=4' 96-127=2' */
 void DCO_SetPortamento(uint8_t value);      /* CC65: >=64 on, <64 off */
 void DCO_SetPortamentoRate(uint8_t value);  /* CC5: 0=fast, 127=slow */
 

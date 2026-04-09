@@ -5,50 +5,58 @@
  * PCM5101A DAC: 16-bit stereo, 48kHz
  * DCO1 -> Left channel, DCO2 -> Right channel
  *
- * Arduino-Pico I2S: BCLK pin and DATA pin specified,
- * LRCK is always BCLK+1 automatically.
+ * Uses onTransmit callback to fill buffers at correct audio rate
+ * ensuring DCO_ProcessBoth runs exactly once per DMA buffer
  */
 
 #include "i2s_audio.h"
 #include <Arduino.h>
 #include <I2S.h>
 
-/* --------------------------------------------------------
- * Configuration
- * -------------------------------------------------------- */
 #define BUFFER_SIZE     256
 
-/* --------------------------------------------------------
- * I2S instance - must be global, constructed before use
- * -------------------------------------------------------- */
 static I2S i2sOut(OUTPUT);
 
-/* --------------------------------------------------------
- * Internal buffers
- * -------------------------------------------------------- */
 static float dco1Buf[BUFFER_SIZE];
 static float dco2Buf[BUFFER_SIZE];
+static volatile bool needsFill = false;
 
-/* --------------------------------------------------------
- * API
- * -------------------------------------------------------- */
+static void onTransmit()
+{
+    /* called when DMA buffer consumed - signal main loop to refill */
+    needsFill = true;
+}
+
 void I2SAudio_Init(uint8_t bclkPin, uint8_t lrckPin, uint8_t dataPin,
                    uint32_t sample_rate)
 {
-    (void)lrckPin;  /* LRCK is always bclkPin+1 in Arduino-Pico */
+    (void)lrckPin;
 
     i2sOut.setBCLK(bclkPin);
     i2sOut.setDATA(dataPin);
     i2sOut.setBitsPerSample(16);
+    i2sOut.setBuffers(4, BUFFER_SIZE);
+    i2sOut.onTransmit(onTransmit);
     i2sOut.begin(sample_rate);
 
-    /* pre-fill first buffer */
+    /* fill initial buffer */
     I2S_CB_FillBuffer(dco1Buf, dco2Buf, BUFFER_SIZE);
+    for (int n = 0; n < BUFFER_SIZE; n++)
+    {
+        int16_t l = (int16_t)(dco1Buf[n] * 32767.0f);
+        int16_t r = (int16_t)(dco2Buf[n] * 32767.0f);
+        i2sOut.write(l);
+        i2sOut.write(r);
+    }
 }
 
 void I2SAudio_Process(void)
 {
-    /* write current buffer to I2S as interleaved stereo */
+    if (!needsFill) return;
+    needsFill = false;
+
+    I2S_CB_FillBuffer(dco1Buf, dco2Buf, BUFFER_SIZE);
+
     for (int n = 0; n < BUFFER_SIZE; n++)
     {
         float l = dco1Buf[n];
@@ -58,13 +66,7 @@ void I2SAudio_Process(void)
         if (r >  1.0f) r =  1.0f;
         if (r < -1.0f) r = -1.0f;
 
-        int16_t left  = (int16_t)(l * 32767.0f);
-        int16_t right = (int16_t)(r * 32767.0f);
-
-        i2sOut.write(left);
-        i2sOut.write(right);
+        i2sOut.write((int16_t)(l * 32767.0f));
+        i2sOut.write((int16_t)(r * 32767.0f));
     }
-
-    /* refill buffer for next call */
-    I2S_CB_FillBuffer(dco1Buf, dco2Buf, BUFFER_SIZE);
 }

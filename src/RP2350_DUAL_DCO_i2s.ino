@@ -27,6 +27,12 @@
 #include "hardware/pwm.h"
 #include "i2s_audio.h"
 #include "dco_engine.h"
+#include <Adafruit_NeoPixel.h>
+
+#define LED_PIN     16
+#define LED_COUNT   1
+
+Adafruit_NeoPixel led(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 /* --------------------------------------------------------
  * Pin assignments
@@ -38,6 +44,18 @@
 #define ADC_FM_PIN      26
 #define ADC_PWM_PIN     27
 #define ADC_XMOD_PIN    28      /* GPIO28 ADC2 - X-MOD input (DCO2->DCO1) */
+
+/* FV1 effects processor switch outputs - 3.3V logic, CC controlled */
+#define FV1_PIN_0       2   // eeprom 1
+#define FV1_PIN_1       4   // eeprom 2
+#define FV1_PIN_2       8   // eeprom 3
+#define FV1_PIN_3       12  // button 0
+#define FV1_PIN_4       13  // button 2
+#define FV1_PIN_5       14  // button 2
+#define FV1_PIN_6       15  // internal - external
+static const uint8_t fv1Pins[] = { FV1_PIN_0, FV1_PIN_1, FV1_PIN_2,
+                                    FV1_PIN_3, FV1_PIN_4, FV1_PIN_5, FV1_PIN_6 };
+#define FV1_PIN_COUNT   7
 #define VELOCITY_PWM_PIN 3      /* GPIO3 - velocity CV output, RC filter: 100k + 22nF + MCP6004 buffer (5V rail-to-rail) */
 #define KEYTRACK_PWM_PIN 6      /* GPIO6 - keytrack CV output, RC filter: 100k + 22nF + MCP6004 buffer (5V rail-to-rail) */
 #define AFTERTOUCH_PWM_PIN 7    /* GPIO7 - aftertouch CV output, RC filter: 1k + 10nF */
@@ -45,7 +63,7 @@
 /* --------------------------------------------------------
  * MIDI channels (1-based)
  * -------------------------------------------------------- */
-#define VOICE_CHANNEL    1      /* <<< change per stamp: 1-8 */
+#define VOICE_CHANNEL    6      /* <<< change per stamp: 1-8 */
 #define CONTROL_CHANNEL  9      /* shared across all stamps  */
 
 /* --------------------------------------------------------
@@ -56,6 +74,9 @@
 #define CC_MOD_WHEEL        1   /* modulation wheel                    */
 #define CC_PORTAMENTO_TIME  5   /* portamento rate                     */
 #define CC_PORTAMENTO_SW    65  /* portamento on/off (>=64=on)         */
+
+#define CC_DCO1_OCTAVE   15  /* octave switch DCO1                */
+#define CC_DCO2_OCTAVE   16  /* octave switch DCO2                */
 
 /* --- DCO1 oscillator --- */
 #define CC_DCO1_SAW_DETUNE  17  /* saw detune spread                   */
@@ -109,6 +130,15 @@
 #define CC_ENV_RELEASE      48  /* release 0=slow 127=fast             */
 #define CC_ENV_DEPTH        49  /* envelope -> DCO2 pitch depth        */
 #define CC_KEYTRACK_DEPTH   54  /* keytrack CV output scaling          */
+
+/* FV1 effects processor switch outputs - 0=low, 127=high */
+#define CC_FV1_SW_0     60
+#define CC_FV1_SW_1     61
+#define CC_FV1_SW_2     62
+#define CC_FV1_SW_3     63
+#define CC_FV1_SW_4     64
+#define CC_FV1_SW_5     66
+#define CC_FV1_SW_6     67
 #define CC_ENV_DCO1_PWM     50  /* envelope -> DCO1 PWM depth          */
 #define CC_ENV_DCO2_PWM     51  /* envelope -> DCO2 PWM depth          */
 
@@ -239,6 +269,8 @@ void myNoteOn(byte channel, byte note, byte velocity)
         KeytrackPWM_Set(note);
         digitalWrite(GATE_PIN, HIGH);
         DCO_NoteOn(note, velocity);
+        led.setPixelColor(0, led.Color(0, 0, 255));  // blue on note on
+        led.show();
     }
 }
 
@@ -248,6 +280,8 @@ void myNoteOff(byte channel, byte note, byte velocity)
     {
         digitalWrite(GATE_PIN, LOW);
         DCO_NoteOff(note);
+        led.setPixelColor(0, led.Color(0, 0, 0));    // off on note off
+        led.show();
     }
 }
 
@@ -261,6 +295,8 @@ void myControlChange(byte channel, byte cc, byte value)
             case CC_MOD_WHEEL:       DCO_SetModWheel(value);        break;
             case CC_PORTAMENTO_TIME: DCO_SetPortamentoRate(value);  break;
             case CC_PORTAMENTO_SW:   DCO_SetPortamento(value);      break;
+            case CC_DCO1_OCTAVE:      DCO_SetOctave(value);         break;
+            case CC_DCO2_OCTAVE:      DCO2_SetOctave(value);        break;
             case CC_DCO1_SAW_DETUNE:      DCO_SetSawDetune(value);       break;
             case CC_DCO1_SAW_COUNT:       DCO_SetSawCount(value);        break;
             case CC_DCO1_PULSE_WIDTH:     DCO_SetPulseWidth(value);      break;
@@ -272,6 +308,14 @@ void myControlChange(byte channel, byte cc, byte value)
             case CC_ADC_FM_DEPTH:    DCO_SetFMDepth(value);         break;
             case CC_XMOD_DEPTH:      DCO_SetXModDepth(value);       break;
             case CC_KEYTRACK_DEPTH:  keytrackDepth = (float)value / 127.0f; break;
+            /* FV1 outputs only active on voice channel 6 */
+            case CC_FV1_SW_0: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_0, value >= 64 ? HIGH : LOW); break;
+            case CC_FV1_SW_1: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_1, value >= 64 ? HIGH : LOW); break;
+            case CC_FV1_SW_2: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_2, value >= 64 ? HIGH : LOW); break;
+            case CC_FV1_SW_3: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_3, value >= 64 ? HIGH : LOW); break;
+            case CC_FV1_SW_4: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_4, value >= 64 ? HIGH : LOW); break;
+            case CC_FV1_SW_5: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_5, value >= 64 ? HIGH : LOW); break;
+            case CC_FV1_SW_6: if (VOICE_CHANNEL == 6) digitalWrite(FV1_PIN_6, value >= 64 ? HIGH : LOW); break;
             case CC_LFO1_RATE:        DCO_SetLFORate(value);         break;
             case CC_LFO1_WAVEFORM:    DCO_SetLFOWaveform(value);     break;
             case CC_LFO1_FM_DEPTH:    DCO_SetLFOFMDepth(value);      break;
@@ -338,8 +382,21 @@ void I2S_CB_FillBuffer(float *out1, float *out2, int len)
  * -------------------------------------------------------- */
 void setup()
 {
+
+    led.begin();
+    led.setBrightness(50);  // 0-255, don't need full brightness
+    led.clear();
+    led.show();
+
     pinMode(GATE_PIN, OUTPUT);
     digitalWrite(GATE_PIN, LOW);
+
+    /* FV1 switch outputs - all low on startup */
+    for (int i = 0; i < FV1_PIN_COUNT; i++)
+    {
+        pinMode(fv1Pins[i], OUTPUT);
+        digitalWrite(fv1Pins[i], LOW);
+    }
 
     /* Velocity PWM */
     VelocityPWM_Init(VELOCITY_PWM_PIN);
@@ -368,6 +425,8 @@ void setup()
     DCO_Init(48000.0f);
 
     /* DCO1 defaults */
+    DCO_SetOctave(32);          /* 8' default */
+    DCO2_SetOctave(32);         /* 8' default */
     DCO_SetSyncMode(0);         /* sync off by default */
     DCO_SetEnvAttack(64);       /* medium attack       */
     DCO_SetEnvDecay(64);        /* medium decay        */
@@ -381,10 +440,10 @@ void setup()
     DCO_SetAftertouchFMDepth(0);
     DCO_SetModWheelFMDepth(0);
     DCO_SetSawLevel(100);
+    DCO_SetSubLevel(0); 
     DCO_SetSawCount(20);
     DCO_SetSawDetune(0);
     DCO_SetPulseLevel(0);
-    DCO_SetSubLevel(0);
     DCO_SetPulseWidth(64);
     DCO_SetPWMDepth(0);
     DCO_SetFMDepth(0);
