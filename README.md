@@ -18,12 +18,13 @@ It outputs audio from a PCM1501A board, left channel for DCO1 & right channel fo
 
 It can also receive 0-3.3v centered at 1.65v for FM and PWM modulation if you desire. 
 
-I might build an 8 or 16 voice poly with it.
+I might build an 6 or 12 voice poly with it.
 
 # Summary
 
-* DCO1 — 5-voice multisaw + pulse + sub + all modulation
+* DCO1 — 5-voice multisaw + pulse + triangle + all modulation
 * DCO2 — saw + pulse + sub, ±24 semitones, ±100 cents detune
+* Octave switching 16, 8, 4 & 2 foot for DCO1 & 2
 * Hard/soft oscillator sync
 * ADSR sweep envelope → DCO2 pitch + DCO1/DCO2 PWM
 * LFO1 → FM vibrato with aftertouch depth
@@ -40,6 +41,9 @@ I might build an 8 or 16 voice poly with it.
 * CC_PORTAMENTO_SW     65  /* portamento on/off (>=64=on)         */
 * CC_PITCHBEND_RANGE   24  /* pitchbend range 1-12 semitones      */
 
+* CC_DCO1_OCTAVE   15  /* octave switch DCO1                */
+* CC_DCO2_OCTAVE   16  /* octave switch DCO2                */
+  
 # DCO1
 * CC_DCO1_SAW_DETUNE  17  /* saw detune spread                   */
 * CC_DCO1_SAW_COUNT   18  /* saw voice count 1-5                 */
@@ -93,3 +97,13 @@ I might build an 8 or 16 voice poly with it.
 * CC_ENV_DCO1_PWM     50  /* envelope -> DCO1 PWM depth          */
 * CC_ENV_DCO2_PWM     51  /* envelope -> DCO2 PWM depth          */
 * CC_KEYTRACK_DEPTH   54  /* keytrack CV output scaling          */
+
+# Addition FV1 effects processor switch outputs - 0=low, 127=high
+* CC_FV1_SW_0     60
+* CC_FV1_SW_1     61
+* CC_FV1_SW_2     62
+* CC_FV1_SW_3     63
+* CC_FV1_SW_4     64
+* CC_FV1_SW_5     66
+* CC_FV1_SW_6     67
+
